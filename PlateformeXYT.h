@@ -3,7 +3,6 @@
 
 #include <Arduino.h>
 #include <U8g2lib.h>
-#include <IRremote.h>
 
 class PlateformeXYT {
   private:
@@ -37,6 +36,7 @@ class PlateformeXYT {
     void resetMotor();
     void setLongueurDep(int val);
     void telecommandeIR();
+    void gererSerial();
 };
 
 #endif

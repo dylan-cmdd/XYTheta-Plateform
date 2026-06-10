@@ -1,4 +1,5 @@
 #include "PlateformeXYT.h"
+#include <IRremote.hpp>
 
 // ============================================================
 //  Constructeur
@@ -7,14 +8,15 @@
 PlateformeXYT::PlateformeXYT(int stepX, int dirX, int stepY, int dirY, int stepTheta, int dirTheta,
                               int xlim_m, int xlim_p, int ylim_m, int ylim_p, int tlim_m, int tlim_p,
                               int recvPin, U8G2_SSD1327_WS_128X128_F_HW_I2C* u8g2) {
+  
   // On stocke chaque paramètre dans l'attribut correspondant
-  this->stepX = stepX;      this->dirX = dirX;
-  this->stepY = stepY;      this->dirY = dirY;
+  this->stepX = stepX;          this->dirX = dirX;
+  this->stepY = stepY;          this->dirY = dirY;
   this->stepTheta = stepTheta;  this->dirTheta = dirTheta;
 
-  this->xlim_m = xlim_m;  this->xlim_p = xlim_p;
-  this->ylim_m = ylim_m;  this->ylim_p = ylim_p;
-  this->tlim_m = tlim_m;  this->tlim_p = tlim_p;
+  this->xlim_m = xlim_m;        this->xlim_p = xlim_p;
+  this->ylim_m = ylim_m;        this->ylim_p = ylim_p;
+  this->tlim_m = tlim_m;        this->tlim_p = tlim_p;
 
   this->recvPin = recvPin;
   this->u8g2 = u8g2;
@@ -156,7 +158,7 @@ void PlateformeXYT::moveMotor(int stepPin, int dirPin, int limitPin, bool direct
 
 void PlateformeXYT::resetMotor() {
   int sauvegarde = longueurDep;
-  longueurDep = 2000;
+  longueurDep = 10000;
 
   u8g2->clearBuffer();
   u8g2->setFont(u8g2_font_6x12_tr);
@@ -184,6 +186,61 @@ void PlateformeXYT::setLongueurDep(int val) {
 }
 
 // ============================================================
+//  Gestion des commandes reçues par le PC (liaison Série)
+// ============================================================
+
+void PlateformeXYT::gererSerial() {
+  if (Serial.available() > 0) {
+    // Lit la commande jusqu'au retour à la ligne (\n)
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim(); // Nettoie les espaces ou résidus
+
+    if (cmd == "RESET") {
+      resetMotor();
+      Serial.println("RESET_OK"); // Répond au PC pour le débloquer
+    } 
+    // ---- AJOUT DE LA COMMANDE POS ICI ----
+    else if (cmd == "POS") {
+      Serial.print("X : "); Serial.print(posX);
+      Serial.print(" Y : "); Serial.print(posY);
+      Serial.print(" T : "); Serial.println(posTheta);
+    }
+    // --------------------------------------
+    else if (cmd.startsWith("PAS")) {
+      int pas = cmd.substring(3).toInt();
+      setLongueurDep(pas);
+      Serial.println("PAS_OK");
+    } 
+    else if (cmd == "XP") {
+      moveMotor(stepX, dirX, xlim_p, true);
+      Serial.println("XP_OK");
+    } 
+    else if (cmd == "XM") {
+      moveMotor(stepX, dirX, xlim_m, false);
+      Serial.println("XM_OK");
+    } 
+    else if (cmd == "YP") {
+      moveMotor(stepY, dirY, ylim_p, true);
+      Serial.println("YP_OK");
+    } 
+    else if (cmd == "YM") {
+      moveMotor(stepY, dirY, ylim_m, false);
+      Serial.println("YM_OK");
+    } 
+    else if (cmd == "TP") {
+      moveMotor(stepTheta, dirTheta, tlim_p, true);
+      Serial.println("TP_OK");
+    } 
+    else if (cmd == "TM") {
+      moveMotor(stepTheta, dirTheta, tlim_m, false);
+      Serial.println("TM_OK");
+    }
+
+    ecranUpdate(); // Met à jour l'OLED après le mouvement
+  }
+}
+
+// ============================================================
 //  Gestion de la télécommande IR
 // ============================================================
 
@@ -207,8 +264,8 @@ void PlateformeXYT::telecommandeIR() {
       case 0xEA15FF00: moveMotor(stepY, dirY, ylim_m, false); break;
 
       // ── Axe X ─────────────────────────────────────────────
-      case 0xBB44FF00: moveMotor(stepX, dirX, xlim_p);        break;
-      case 0xBC43FF00: moveMotor(stepX, dirX, xlim_m, false); break;
+      case 0xBC43FF00: moveMotor(stepX, dirX, xlim_p);        break;
+      case 0xBB44FF00: moveMotor(stepX, dirX, xlim_m, false); break;
 
       // ── Axe Theta ─────────────────────────────────────────
       case 0xF30CFF00: moveMotor(stepTheta, dirTheta, tlim_p);        break;
