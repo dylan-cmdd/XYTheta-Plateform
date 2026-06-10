@@ -25,7 +25,6 @@ IRrecv irrecv(RECV_PIN);
 decode_results results;
 
 // ── Écran OLED (SPI) ────────────────────────────────────────
-//U8G2_SSD1327_WS_128X128_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 7, /* reset=*/ 8); //Mode SPI (CS et RST coupés)
 U8G2_SSD1327_WS_128X128_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE); //Mode I2C (SDA=A4, SCL=A5)
 
 // ── Variables ──────────────────────────────────────
