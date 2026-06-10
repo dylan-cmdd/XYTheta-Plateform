@@ -9,7 +9,6 @@ PlateformeXYT::PlateformeXYT(int stepX, int dirX, int stepY, int dirY, int stepT
                               int xlim_m, int xlim_p, int ylim_m, int ylim_p, int tlim_m, int tlim_p,
                               int recvPin, U8G2_SSD1327_WS_128X128_F_HW_I2C* u8g2) {
   
-  // On stocke chaque paramètre dans l'attribut correspondant
   this->stepX = stepX;          this->dirX = dirX;
   this->stepY = stepY;          this->dirY = dirY;
   this->stepTheta = stepTheta;  this->dirTheta = dirTheta;
@@ -42,7 +41,7 @@ void PlateformeXYT::begin() {
   pinMode(stepTheta, OUTPUT);
   pinMode(dirTheta, OUTPUT);
 
-  // Fins de course (INPUT_PULLUP → LOW quand actif)
+  // Fins de course
   pinMode(xlim_m, INPUT_PULLUP);
   pinMode(xlim_p, INPUT_PULLUP);
   pinMode(ylim_m, INPUT_PULLUP);
@@ -122,11 +121,11 @@ void PlateformeXYT::moveMotor(int stepPin, int dirPin, int limitPin, bool direct
   int maxD, minD, seuil;
 
   if (longueurDep <= 100) {
-    maxD = 2000;  minD = 2000;  seuil = 2000; // Vitesse constante, lente
+    maxD = 2000;  minD = 2000;  seuil = 2000; 
   } else if (longueurDep <= 300) {
-    maxD = 2500;  minD = 1200;  seuil = 1000; // Accélération douce
+    maxD = 2500;  minD = 1200;  seuil = 1000; 
   } else {
-    maxD = 3000;  minD = 800;   seuil = 800;  // Pleine accélération
+    maxD = 3000;  minD = 800;   seuil = 800; 
   }
 
   for (int x = 0; x < longueurDep; x++) {
@@ -191,13 +190,12 @@ void PlateformeXYT::setLongueurDep(int val) {
 
 void PlateformeXYT::gererSerial() {
   if (Serial.available() > 0) {
-    // Lit la commande jusqu'au retour à la ligne (\n)
     String cmd = Serial.readStringUntil('\n');
-    cmd.trim(); // Nettoie les espaces ou résidus
+    cmd.trim();
 
     if (cmd == "RESET") {
       resetMotor();
-      Serial.println("RESET_OK"); // Répond au PC pour le débloquer
+      Serial.println("RESET_OK");
     } 
     // ---- AJOUT DE LA COMMANDE POS ICI ----
     else if (cmd == "POS") {
@@ -236,7 +234,7 @@ void PlateformeXYT::gererSerial() {
       Serial.println("TM_OK");
     }
 
-    ecranUpdate(); // Met à jour l'OLED après le mouvement
+    ecranUpdate();
   }
 }
 
@@ -247,7 +245,6 @@ void PlateformeXYT::gererSerial() {
 void PlateformeXYT::telecommandeIR() {
   if (IrReceiver.decode()) {
 
-    // Affiche le code reçu dans le moniteur série (INDISPENSABLE pour trouver tes boutons)
     Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX);
 
     switch (IrReceiver.decodedIRData.decodedRawData) {
