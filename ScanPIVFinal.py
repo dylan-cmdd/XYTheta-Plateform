@@ -1,46 +1,3 @@
-"""
-============================================================================
-  SCAN PIV  —  pilotage plateforme + camera Phantom   (version 6)
-============================================================================
-
-Ce que fait cette version, en plus du pilotage de base :
-  - CONFIRMATION D'ARRIVEE : apres un deplacement, Python ne fait pas
-    confiance au "c'est fini" renvoye par l'Arduino. Il relit la position
-    en boucle et n'avance que lorsque la plateforme est SUR la cible ET
-    immobile. Evite que le 1er enregistrement d'un balayage commence avant
-    que la plateforme soit en place.
-  - STABILISATION : petite pause apres l'arrivee, pour laisser retomber les
-    vibrations mecaniques avant de filmer.
-  - ATTENTE FIN D'ECRITURE : filmer() ne rend la main qu'une fois le .cine
-    reellement ecrit sur le disque (surveillance de la taille du fichier).
-  - JOURNAL EXCEL : pendant le scan on note les parametres de chaque film
-    (position, resolution, fps, exposition...). A la fin (ou meme si le scan
-    s'arrete en cours), on ecrit un recapitulatif .xlsx dans le dossier.
-
-  -> Le recapitulatif Excel necessite la librairie 'openpyxl' :
-        pip install openpyxl
-     Sinon, le programme ecrit un .csv a la place (Excel l'ouvre aussi).
-
-Outils de base :
-  lire_position(arduino)                  ->  lit ou est la plateforme (X, Y, T)
-  attendre_arrivee(arduino, x, y)         ->  attend que la plateforme soit en place
-  aller_a(arduino, x, y)                  ->  va aux coordonnees absolues (x, y) + confirme
-  bouger(arduino, direction, nb_pas)      ->  deplace d'un nombre de pas
-  filmer(cam, nom, nb_images, fps)        ->  enregistre un film ET attend la fin d'ecriture
-  ecrire_journal_excel(lignes, chemin)    ->  ecrit le recapitulatif des prises
-
-Deroulement de la PIV :
-  1) RESET (mise a l'origine 0,0,0) + confirmation
-  2) MODE LARGEUR  : aller a (x_debut, y) face nappe, balayer X decroissant
-  3) rotation de 90 degres
-  4) MODE LONGUEUR : aller a (x_debut, y) face nappe, balayer X decroissant
-
-Le declenchement camera se fait sur le front du creneau GBF (trigger
-externe) : on ARME avec record(), c'est le front qui declenche. On
-n'appelle donc jamais cam.trigger().
-----------------------------------------------------------------------------
-"""
-
 import os
 import time
 import csv
@@ -55,14 +12,10 @@ from Camera_Selector_Fn import camera_selector
 #   REGLAGES FIXES
 # ============================================================
 
-# Dossier ou enregistrer les films. A changer selon la machine.
 DOSSIER_SORTIE = r"C:\Users\Dremaro\Desktop\StageDylan\WS_python\Film_PIV"
 
-# Mode de synchro : None = detection auto. Sinon nom exact ("EXTERNAL"/"INTERNAL").
 SYNC_MODE_NOM = "INTERNAL"
 
-# Pause de stabilisation mecanique (s) apres l'arrivee a une position,
-# avant de filmer. A augmenter si la 1ere image d'un balayage est floue.
 STABILISATION_S = 0.5
 
 
@@ -123,13 +76,10 @@ def envoyer(arduino, commande):
     """Envoie une commande a l'Arduino et attend sa reponse (= mouvement fini).
     L'Arduino renvoie sa position apres CHAQUE commande recue."""
 
-    # 1. On vide tous les vieux dechets (ex: codes IR) juste avant de parler
     arduino.reset_input_buffer()
 
-    # 2. On envoie l'ordre
     arduino.write((commande + "\n").encode("utf-8"))
 
-    # 3. On attend patiemment la reponse (marche uniquement si timeout=None)
     reponse = arduino.readline().decode("utf-8").strip()
     print(f"  reponse : {reponse}")
 
@@ -143,8 +93,6 @@ def lire_position(arduino):
     Reponse attendue de la forme : 'X : 120 Y : 4150 T : 0'."""
     reponse = envoyer(arduino, "POS")
     try:
-        # On remplace les ':' par des espaces puis on decoupe :
-        # "X : 120 Y : 4150 T : 0" -> ['X','120','Y','4150','T','0']
         morceaux = reponse.replace(":", " ").split()
         x = int(morceaux[1])
         y = int(morceaux[3])
@@ -200,25 +148,21 @@ def aller_a(arduino, x_cible, y_cible):
     On lit la position actuelle, on calcule l'ecart, et on bouge dans le bon sens."""
     pos = lire_position(arduino)
     print(f"  position actuelle : X={pos['X']} Y={pos['Y']} -> cible X={x_cible} Y={y_cible}")
-
-    # Deplacement en X
+  
     dx = x_cible - pos["X"]
     if dx > 0:
         bouger(arduino, "XP", dx)
     elif dx < 0:
-        bouger(arduino, "XM", -dx)   # -dx est positif ici
+        bouger(arduino, "XM", -dx)   
 
-    # Deplacement en Y
     dy = y_cible - pos["Y"]
     if dy > 0:
         bouger(arduino, "YP", dy)
     elif dy < 0:
         bouger(arduino, "YM", -dy)
 
-    # On VERIFIE l'arrivee (au lieu de croire l'Arduino sur parole) AVANT de continuer.
     attendre_arrivee(arduino, x_cible, y_cible)
 
-    # Pause finale : stabilisation mecanique (vibrations residuelles apres le dernier pas).
     time.sleep(STABILISATION_S)
 
 
@@ -240,7 +184,6 @@ def attendre_fichier_complet(chemin_sans_ext, delai_stable=1.0, timeout=180):
     instant_dernier_changement = time.time()
 
     while True:
-        # securite : on n'attend jamais indefiniment
         if time.time() - debut > timeout:
             print("  ATTENTION : timeout, fichier pas fini a temps :", chemin)
             return False
@@ -248,28 +191,24 @@ def attendre_fichier_complet(chemin_sans_ext, delai_stable=1.0, timeout=180):
         if os.path.exists(chemin):
             taille = os.path.getsize(chemin)
             if taille != taille_avant:
-                # la taille change -> l'ecriture continue
                 taille_avant = taille
                 instant_dernier_changement = time.time()
             elif taille > 0 and (time.time() - instant_dernier_changement) >= delai_stable:
-                # taille stable depuis assez longtemps -> c'est fini
                 return True
 
-        time.sleep(0.2)   # on re-teste 5 fois par seconde
+        time.sleep(0.2) 
 
 
 def filmer(cam, nom_fichier, nb_images, fps):
     """Arme la camera, enregistre, sauvegarde, et ATTEND que le fichier
     soit reellement ecrit sur le disque avant de rendre la main."""
     cam.post_trigger_frames = nb_images
-    cam.record()                          # ARME : attend le front du GBF
+    cam.record()                  
 
-    # Phase 1 : enregistrement (duree previsible) + marge de securite
     temps_enregistrement = (nb_images / fps) + 2
     print(f"  enregistrement... (~{temps_enregistrement:.1f} s)")
     time.sleep(temps_enregistrement)
 
-    # Phase 2 : sauvegarde sur le disque
     c = cam.Cine(1)
     c.save(
         filename = nom_fichier,
@@ -277,13 +216,11 @@ def filmer(cam, nom_fichier, nb_images, fps):
         range    = utils.FrameRange(c.range.first_image, c.range.last_image)
     )
 
-    # On NE rend la main que quand le fichier est vraiment fini d'ecrire
     if attendre_fichier_complet(nom_fichier):
         print(f"  film bien enregistre : {nom_fichier}.cine")
     else:
         print(f"  PROBLEME : {nom_fichier}.cine semble incomplet")
 
-    # On vide la RAM camera SEULEMENT apres avoir verifie le fichier
     cam.clear_ram()
 
 
@@ -300,7 +237,6 @@ def ecrire_journal_excel(lignes, chemin_xlsx):
         print("  Journal vide, aucun recapitulatif cree.")
         return
 
-    # Les colonnes = les cles de la 1ere ligne (toutes les lignes ont les memes)
     colonnes = list(lignes[0].keys())
 
     try:
@@ -311,11 +247,11 @@ def ecrire_journal_excel(lignes, chemin_xlsx):
         feuille = classeur.active
         feuille.title = "Scan PIV"
 
-        feuille.append(colonnes)                       # ligne d'en-tete
+        feuille.append(colonnes)             
         for ligne in lignes:
             feuille.append([ligne[c] for c in colonnes])
 
-        # Largeur des colonnes ajustee au contenu (confort de lecture)
+
         for i, c in enumerate(colonnes, start=1):
             largeur = len(str(c))
             for ligne in lignes:
@@ -326,7 +262,7 @@ def ecrire_journal_excel(lignes, chemin_xlsx):
         print(f"  Recapitulatif Excel ecrit : {chemin_xlsx}")
 
     except ImportError:
-        # openpyxl absent -> on sauve un CSV (Excel l'ouvre tres bien)
+
         chemin_csv = chemin_xlsx.replace(".xlsx", ".csv")
         with open(chemin_csv, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=colonnes, delimiter=";")
@@ -350,10 +286,9 @@ def balayage_x(arduino, cam, x_debut, x_fin, pas_entre, nb_images, fps, prefixe)
         print(f"  ATTENTION : il faut x_debut > x_fin ; balayage '{prefixe}' ignore.")
         return
 
-    nb_positions = distance // pas_entre + 1   # +1 : on filme AUSSI la position finale
+    nb_positions = distance // pas_entre + 1  
     print(f"\n=== Balayage {prefixe} : {nb_positions} positions ===")
 
-    # Reglages camera reellement appliques (constants pendant tout le balayage)
     largeur_px, hauteur_px = cam.resolution
     fps_reel = cam.frame_rate
     expo_reel = cam.exposure
@@ -362,10 +297,9 @@ def balayage_x(arduino, cam, x_debut, x_fin, pas_entre, nb_images, fps, prefixe)
         print(f"-- {prefixe} position {i + 1}/{nb_positions} --")
         nom = os.path.join(DOSSIER_SORTIE, f"{prefixe}_{i:03d}")
 
-        pos = lire_position(arduino)             # 1. ou est la plateforme MAINTENANT
-        filmer(cam, nom, nb_images, fps)         # 2. filmer ici
+        pos = lire_position(arduino)            
+        filmer(cam, nom, nb_images, fps)        
 
-        # 3. on note tous les parametres de cette prise dans le journal
         journal.append({
             "numero": i,
             "mode": prefixe,
@@ -380,7 +314,7 @@ def balayage_x(arduino, cam, x_debut, x_fin, pas_entre, nb_images, fps, prefixe)
             "heure": time.strftime("%H:%M:%S"),
         })
 
-        if i < nb_positions - 1:                 # 4. reculer d'un pas SAUF apres le dernier
+        if i < nb_positions - 1:                 
             bouger(arduino, "XM", pas_entre)
 
 
@@ -390,8 +324,6 @@ def balayage_x(arduino, cam, x_debut, x_fin, pas_entre, nb_images, fps, prefixe)
 
 os.makedirs(DOSSIER_SORTIE, exist_ok=True)
 
-# Journal : une ligne (un dict) par film. Rempli pendant le scan par
-# balayage_x, puis ecrit en Excel a la fin (voir le bloc finally).
 journal = []
 
 # --- 1. Reglages camera ---
@@ -494,10 +426,6 @@ finally:
         arduino.close()
     print("Materiel deconnecte.")
 
-    # Recapitulatif Excel de toutes les prises.
-    # Place dans 'finally' : il est ecrit meme si le scan s'arrete en cours de
-    # route (on garde alors la trace des films deja realises). Le nom contient
-    # la date/heure pour ne pas ecraser le recapitulatif d'un scan precedent.
     nom_recap = "recap_scan_" + time.strftime("%Y-%m-%d_%Hh%M") + ".xlsx"
     chemin_recap = os.path.join(DOSSIER_SORTIE, nom_recap)
     ecrire_journal_excel(journal, chemin_recap)
